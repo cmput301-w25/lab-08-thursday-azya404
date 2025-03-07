@@ -53,7 +53,7 @@ public class MainActivityTest {
     }
 
     @Before
-    public void seedDatabase() {
+    public void seedDatabase() throws InterruptedException {
         FirebaseFirestore db = FirebaseFirestore.getInstance();
         CollectionReference moviesRef = db.collection("movies");
         Movie[] movies = {
@@ -66,6 +66,8 @@ public class MainActivityTest {
             movie.setId(docRef.getId());
             docRef.set(movie);
         }
+
+        Thread.sleep(5000);
     }
 
     @Test
@@ -103,6 +105,7 @@ public class MainActivityTest {
 
     @Test
     public void appShouldDisplayExistingMoviesOnLaunch() {
+
         // Check that the initial data is loaded
         onView(withText("Oppenheimer")).check(matches(isDisplayed()));
         onView(withText("Barbie")).check(matches(isDisplayed()));
@@ -114,6 +117,7 @@ public class MainActivityTest {
         onView(withId(R.id.edit_title)).check(matches(withText("Oppenheimer")));
         onView(withId(R.id.edit_genre)).check(matches(withText("Thriller/Historical Drama")));
         onView(withId(R.id.edit_year)).check(matches(withText("2023")));
+
     }
 
     @Test
