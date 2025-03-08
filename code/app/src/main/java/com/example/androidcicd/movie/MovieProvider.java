@@ -3,6 +3,7 @@ package com.example.androidcicd.movie;
 import com.google.firebase.firestore.CollectionReference;
 import com.google.firebase.firestore.DocumentReference;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.Query;
 import com.google.firebase.firestore.QueryDocumentSnapshot;
 
 import java.util.ArrayList;
@@ -48,26 +49,59 @@ public class MovieProvider {
         return movies;
     }
 
-    public void updateMovie(Movie movie, String title, String genre, int year) {
-        movie.setTitle(title);
-        movie.setGenre(genre);
-        movie.setYear(year);
-        DocumentReference docRef = movieCollection.document(movie.getId());
-        if (validMovie(movie, docRef)) {
-            docRef.set(movie);
-        } else {
-            throw new IllegalArgumentException("Invalid Movie!");
-        }
+    public void addMovie(Movie movie, DataStatus dataStatus) {
+        Query query = movieCollection.whereEqualTo("title", movie.getTitle());
+        query.get().addOnCompleteListener(task -> {
+            if (task.isSuccessful() && !task.getResult().isEmpty()) {
+                dataStatus.onError("A movie with this title already exists.");
+                return;
+            }
+
+            DocumentReference docRef = movieCollection.document();
+            movie.setId(docRef.getId());
+
+            if (validMovie(movie)) {
+                docRef.set(movie).addOnCompleteListener(addTask -> {
+                    if (addTask.isSuccessful()) {
+                        dataStatus.onDataUpdated();
+                    } else {
+                        dataStatus.onError("Failed to add movie.");
+                    }
+                });
+            } else {
+                dataStatus.onError("Invalid Movie!");
+            }
+        });
     }
 
-    public void addMovie(Movie movie) {
-        DocumentReference docRef = movieCollection.document();
-        movie.setId(docRef.getId());
-        if (validMovie(movie, docRef)) {
-            docRef.set(movie);
-        } else {
-            throw new IllegalArgumentException("Invalid Movie!");
-        }
+    public void updateMovie(Movie movie, String title, String genre, int year, DataStatus dataStatus) {
+        movieCollection.whereEqualTo("title", title).get().addOnCompleteListener(task -> {
+            if (task.isSuccessful() && !task.getResult().isEmpty()) {
+                for (QueryDocumentSnapshot document : task.getResult()) {
+                    if (!document.getId().equals(movie.getId())) {
+                        dataStatus.onError("A movie with this title already exists.");
+                        return;
+                    }
+                }
+            }
+
+            movie.setTitle(title);
+            movie.setGenre(genre);
+            movie.setYear(year);
+            DocumentReference docRef = movieCollection.document(movie.getId());
+
+            if (validMovie(movie)) {
+                docRef.set(movie).addOnCompleteListener(updateTask -> {
+                    if (updateTask.isSuccessful()) {
+                        dataStatus.onDataUpdated();
+                    } else {
+                        dataStatus.onError("Failed to update movie.");
+                    }
+                });
+            } else {
+                dataStatus.onError("Invalid Movie!");
+            }
+        });
     }
 
     public void deleteMovie(Movie movie) {
@@ -75,11 +109,14 @@ public class MovieProvider {
         docRef.delete();
     }
 
-    public boolean validMovie(Movie movie, DocumentReference docRef) {
-        return movie.getId().equals(docRef.getId()) && !movie.getTitle().isEmpty() && !movie.getGenre().isEmpty() && movie.getYear() > 0;
+    private boolean validMovie(Movie movie) {
+        return !movie.getTitle().isEmpty() && !movie.getGenre().isEmpty() && movie.getYear() > 0;
     }
 
     public static void setInstanceForTesting(FirebaseFirestore firestore) {
         movieProvider = new MovieProvider(firestore);
     }
 }
+
+
+

@@ -2,14 +2,17 @@ package com.example.androidcicd;
 
 import static org.junit.Assert.assertEquals;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.example.androidcicd.movie.Movie;
 import com.example.androidcicd.movie.MovieProvider;
+import com.google.android.gms.tasks.Task;
 import com.google.firebase.firestore.CollectionReference;
 import com.google.firebase.firestore.DocumentReference;
 import com.google.firebase.firestore.FirebaseFirestore;
+import com.google.firebase.firestore.QuerySnapshot;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -26,21 +29,44 @@ public class MovieProviderTest {
     @Mock
     private DocumentReference mockDocRef;
 
-    private MovieProvider movieProvider; // no need to mock this as it is what we are testing
+    private MovieProvider movieProvider; // No need to mock this as it is what we are testing
 
+    @Mock
+    private MovieProvider.DataStatus mockDataStatus;
     @Before
     public void setUp() {
+        System.out.println("Starting setup...");
+
         // Start up mocks
         MockitoAnnotations.openMocks(this);
 
-        // Define the behaviour we want during our tests. This part is what avoids the calls to firestore.
+        // Ensure Firestore mocks return valid references
         when(mockFirestore.collection("movies")).thenReturn(mockMovieCollection);
         when(mockMovieCollection.document()).thenReturn(mockDocRef);
         when(mockMovieCollection.document(anyString())).thenReturn(mockDocRef);
+
+        // Ensure mockDocRef returns a valid ID
+        when(mockDocRef.getId()).thenReturn("123");
+
+        // Ensure mock DataStatus is initialized to prevent null exceptions
+        mockDataStatus = mock(MovieProvider.DataStatus.class);
+
+        // Ensure Firestore Task mock doesn't return null
+        Task<QuerySnapshot> mockTask = mock(Task.class);
+        QuerySnapshot mockQuerySnapshot = mock(QuerySnapshot.class);
+        when(mockTask.isSuccessful()).thenReturn(true);
+        when(mockTask.getResult()).thenReturn(mockQuerySnapshot);
+        when(mockQuerySnapshot.isEmpty()).thenReturn(true);
+        when(mockMovieCollection.whereEqualTo(anyString(), anyString()).get()).thenReturn(mockTask);
+
         // Setup the movie provider
         MovieProvider.setInstanceForTesting(mockFirestore);
         movieProvider = MovieProvider.getInstance(mockFirestore);
+
+        System.out.println("MovieProvider initialized successfully.");
     }
+
+
 
     @Test
     public void testAddMovieSetsId() {
@@ -50,14 +76,18 @@ public class MovieProviderTest {
         // Define the ID we want to set for the movie
         when(mockDocRef.getId()).thenReturn("123");
 
+        // Simulate Firestore returning a successful task
+        Task<Void> mockSetTask = mock(Task.class);
+        when(mockDocRef.set(movie)).thenReturn(mockSetTask);
+        when(mockSetTask.isSuccessful()).thenReturn(true);
 
-        // Add movie and check that we update our movie with the generated id
-        movieProvider.addMovie(movie);
+        // Add movie
+        movieProvider.addMovie(movie, mockDataStatus);
+
+        // Verify movie ID is set correctly
         assertEquals("Movie was not updated with correct id.", "123", movie.getId());
 
-    /*
-        Verify that we called the set method. Normally, this would call the database, but due to what we did in our setup method, this will not actually interact with the database, but the mock does track that the method was called.
-    */
+        // Verify Firestore interaction
         verify(mockDocRef).set(movie);
     }
 
@@ -67,7 +97,7 @@ public class MovieProviderTest {
         Movie movie = new Movie("Oppenheimer", "Thriller/Historical Drama", 2023);
         movie.setId("123");
 
-        // Call the delete movie and verify the firebase delete method was called.
+        // Call deleteMovie and verify Firestore delete is called
         movieProvider.deleteMovie(movie);
         verify(mockDocRef).delete();
     }
@@ -75,23 +105,42 @@ public class MovieProviderTest {
     @Test(expected = IllegalArgumentException.class)
     public void testUpdateMovieShouldThrowErrorForDifferentIds() {
         Movie movie = new Movie("Oppenheimer", "Thriller/Historical Drama", 2023);
-        // Set our ID to 1
         movie.setId("1");
 
         // Make sure the doc ref has a different ID
         when(mockDocRef.getId()).thenReturn("123");
 
-        // Call update movie, which should throw an error
-        movieProvider.updateMovie(movie, "Another Title", "Another Genre", 2026);
+        // Call update movie
+        movieProvider.updateMovie(movie, "Another Title", "Another Genre", 2026, mockDataStatus);
     }
 
     @Test(expected = IllegalArgumentException.class)
     public void testUpdateMovieShouldThrowErrorForEmptyName() {
         Movie movie = new Movie("Oppenheimer", "Thriller/Historical Drama", 2023);
         movie.setId("123");
+
         when(mockDocRef.getId()).thenReturn("123");
 
-        // Call update movie, which should throw an error due to having an empty name
-        movieProvider.updateMovie(movie, "", "Another Genre", 2026);
+        // Call update movie
+        movieProvider.updateMovie(movie, "", "Another Genre", 2026, mockDataStatus);
+    }
+
+    @Test
+    public void testAddDuplicateMovieFails() {
+        Movie movie = new Movie("Oppenheimer", "Thriller", 2023);
+
+        Task<QuerySnapshot> mockTask = mock(Task.class);
+        QuerySnapshot mockQuerySnapshot = mock(QuerySnapshot.class);
+        when(mockTask.isSuccessful()).thenReturn(true);
+        when(mockTask.getResult()).thenReturn(mockQuerySnapshot);
+        when(mockQuerySnapshot.isEmpty()).thenReturn(false); // Simulating a duplicate movie exists
+
+        when(mockMovieCollection.whereEqualTo("title", "Oppenheimer").get()).thenReturn(mockTask);
+
+        movieProvider.addMovie(movie, mockDataStatus);
+
+        verify(mockDataStatus).onError("A movie with this title already exists.");
     }
 }
+
+
